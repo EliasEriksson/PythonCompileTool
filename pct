@@ -1,0 +1,221 @@
+#!/usr/bin/env python3
+from typing import *
+import subprocess
+import argparse
+from pathlib import Path, PosixPath
+import os
+import re
+
+
+class DownloadError(Exception):
+    pass
+
+
+class ConfigurationError(Exception):
+    pass
+
+
+class MakeError(Exception):
+    pass
+
+
+class InstallError(Exception):
+    pass
+
+
+class Default:
+    """container for argparse defaults
+    :attr executable: path to python executable
+    :attr version: python version number to compile and install
+    :attr directory: directory to download and extract the source in
+    :attr threads: value for -j argument for make
+    """
+    executable = "None"
+    version = "3.8.2"
+    directory = str(Path.home().joinpath("Documents"))
+    threads = 4
+
+
+class Args:
+    """container for arguments to parse
+
+    :attr executable: name of the python executable argument
+    :attr version: name of the version argument
+    :attr flags: name of the flags argument
+    :attr threads: name of the threads argument
+    :attr directory: name of the directory argument
+    :attr optimizations: name of the optimizations argument
+    """
+    executable = "python_executable"
+    version = "version"
+    flags = "flags"
+    threads = "--threads"
+    directory = "--directory"
+    optimizations = "--without_optimizations"
+
+
+def get_arg(args: argparse.Namespace, arg: str) -> Optional[Any]:
+    """wrapper for getting arguments from the namespace
+
+    :param args: the parsed arguments namespace
+    :param arg: the argument name to get
+    :return: argument value
+    """
+    attr = getattr(args, arg.strip("--"))
+    return attr if attr != "None" else None
+
+
+def download(version: str, directory: PosixPath) -> PosixPath:
+    """downloads the python source
+
+    downlaods the source by building a url using given version
+    downloads it to given directory using wget and unpacks it with tar
+
+    :param version: version to download.
+    :param directory: directory to download to.
+    :return: path to the extracted source.
+    """
+    link = f"https://www.python.org/ftp/python/{version}/Python-{version}.tgz"
+    filename = link.split("/")[-1]
+
+    if not directory.joinpath(f"Python-{version}").is_dir():
+        result = subprocess.run([
+            "wget", "-O", directory.joinpath(filename), link
+        ])
+        if result.returncode:
+            raise DownloadError("Something went wrong with wget.")
+
+        result = subprocess.run([
+            "tar", "-C", directory, "-xvf", directory.joinpath(filename)
+        ])
+        if result.returncode:
+            raise DownloadError("Something went wrong with extracting the tar file.")
+
+        result = subprocess.run([
+            "rm", directory.joinpath(filename)
+        ])
+        if result.returncode:
+            raise DownloadError("Something went wrong with removing the tar file.")
+
+    return directory.joinpath(filename).with_suffix("")
+
+
+def configure_until_it_works(options: List[str]) -> bool:
+    """atemps to configure untill it works
+
+    if it errors the option that caused the error will be removed and
+    another atempt to configure will run.
+
+    :param options: options foc ./configure
+    :return: True if if configured else False
+    """
+    pattern = re.compile(r"unrecognized option: `(.*)'")
+    while options:
+        result = subprocess.run([
+            "./configure", *options
+        ], stderr=subprocess.PIPE)
+        if result.returncode == 0:
+            return True
+        else:
+            match = pattern.search(result.stderr.decode())
+            if match:
+                options.remove(match.groups()[0])
+    return False
+
+
+def configure(executable: str, options: List[str], optimizations: bool) -> None:
+    """gathers options and runs ./configure
+
+    OBS! all options that fail durring the configure will silently be removed
+
+    gathers configure options from:
+        the python executable.
+        the aditional flags provided in flags.
+        optimization flags.
+
+    :param executable: python nexecutable to search for previous compiler arguments
+    :param options: aditional flags that was not included in the executable
+    :param optimizations: compile with or without optimizations
+    :return: None
+    """
+    lto = "--with-lto"
+    pgo = "--enable-optimizations"
+
+    if executable:
+        result = subprocess.run([
+            executable, "-c", 'import sysconfig; print(sysconfig.get_config_vars("CONFIG_ARGS"))'
+        ], stdout=subprocess.PIPE)
+        if result.returncode:
+            raise ConfigurationError(f"Something went wrong when trying to get pythons sysconfig.\n"
+                                     f"Is {executable} on PATH?")
+        options.extend(result.stdout.decode().strip().lstrip("[\"").rstrip("\"]").replace("'", "").split())
+
+    if optimizations:
+        if lto not in options:
+            options.append(lto)
+        if pgo not in options:
+            options.insert(0, pgo)
+    else:
+        if lto in options:
+            options.remove(lto)
+        if pgo in options:
+            options.remove(pgo)
+
+    configure_until_it_works(options)
+
+
+def make(threads: int) -> None:
+    """runs make with desired jobs (threads)
+
+    :param threads: jobs to run concurrently
+    :return: None
+    """
+    result = subprocess.run([
+        "make", f"-j{threads}",
+    ])
+    if result.returncode:
+        raise MakeError("Something went wrong in the `make` process.")
+
+
+def make_altinstall(config_dir: PosixPath) -> None:
+    """runs make altinstall. requires sudo
+
+    :param config_dir: the configuration directory where the compiled program is located
+    :return: None
+    """
+    result = subprocess.run([
+        "sudo", "make", "altinstall"
+    ])
+
+    if result.returncode:
+        print("\nPermission to finish the install not granted.")
+        print("To finish the install run:")
+        print(f"sudo cd {str(config_dir)} && sudo make altinstall")
+    else:
+        print("\nCompilation and installation was successful!")
+
+
+def main(args: argparse.Namespace, options):
+    executable = get_arg(args, Args.executable)
+    version = get_arg(args, Args.version)
+    threads = get_arg(args, Args.threads)
+    directory = Path(get_arg(args, Args.directory))
+    optimizations = not get_arg(args, Args.optimizations)
+
+    config_dir = download(version, directory)
+    # noinspection PyTypeChecker
+    os.chdir(config_dir)
+    configure(executable, options, optimizations)
+    make(threads)
+    make_altinstall(config_dir)
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument(Args.version, default=Default.version)
+    parser.add_argument(Args.executable, default=Default.executable)
+    parser.add_argument(Args.directory, default=Default.directory)
+    parser.add_argument(Args.threads, type=int, default=Default.threads)
+    parser.add_argument(Args.optimizations, action="store_true")
+    main(*parser.parse_known_args())
