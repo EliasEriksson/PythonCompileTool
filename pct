@@ -213,9 +213,19 @@ def main(args: argparse.Namespace, options):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
-    parser.add_argument(Args.version, default=Default.version)
-    parser.add_argument(Args.executable, default=Default.executable)
-    parser.add_argument(Args.directory, default=Default.directory)
-    parser.add_argument(Args.threads, type=int, default=Default.threads)
-    parser.add_argument(Args.optimizations, action="store_true")
+    parser.add_argument(
+        Args.version, default=Default.version,
+        help="The version of python to compile OBS 3.8 is not enough,\nfull version number required (ex: 3.8.2).")
+    parser.add_argument(
+        Args.executable, default=Default.executable,
+        help="Python executable to copy compile options from.\nIf this is not desired pass None.")
+    parser.add_argument(
+        Args.directory, default=Default.directory,
+        help="The directory to download the source to and compile in.")
+    parser.add_argument(
+        Args.threads, type=int, default=Default.threads,
+        help="The amount of jobs that make spawns.\n(`make -jTHREADS`)")
+    parser.add_argument(
+        Args.optimizations, action="store_true",
+        help="With or without optimizations, default with.")
     main(*parser.parse_known_args())
