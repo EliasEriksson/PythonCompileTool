@@ -19,12 +19,27 @@ The system python interpreter does not come compiled with optimizations enabled 
  to build the new version.
 
 
+## Before compiling
+Make sure you have the required dependencies to compile python.\
+These can be installed with apt using `apt build-dep python3.x`
+
+
 ## Usage:
-`./pct <version number> <python executable> <pct options> <extra options for configure script>`\
+`./pct <version number> <python executable> <options>`\
 with options its possible to modify:
 * Where the python source is downloaded to / directory  for compilation ends up. (`--directory`)
 * Amount of jobs that are spawned concurrently for make (`--threads`)
 * If optimizations should be included (included by default). (`--without-optimizations`)
+* Add extra options not found in the executable. (`--include`)
+* Remove options found in the executable. (`--exclude`)
+
+
+## My recommendation
+`./pct <version number> python3 --exclude --without-ensurepip`\
+This will copy the options the system interpreter was compiled with but include optimizations and 
+exclude the `--without-ensurepip` option that the system interpreter comes with. This will make sure pip is 
+installed during compilation.
+
 
 ## Examples:
 Compile 3.8.2 with compile options from python3 + optimizations:\
@@ -40,4 +55,4 @@ Compile 3.8.2 with compile options from python3 without optimizations:\
 `./pct 3.8.2 python3 --without-optimizations` 
 
 Compile 3.6.10 with compile options from python3 with pydebug and without optimizations:\
-`./pct 3.6.10 python3 --without-optimizations --with-pydebug`
+`./pct 3.6.10 python3 --without-optimizations --include --with-pydebug`

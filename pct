@@ -3,8 +3,9 @@ from typing import *
 import subprocess
 import argparse
 from pathlib import Path, PosixPath
-import os
+import sys
 import re
+import os
 
 
 class DownloadError(Exception):
@@ -23,6 +24,10 @@ class InstallError(Exception):
     pass
 
 
+class ArgParseError(Exception):
+    pass
+
+
 class Default:
     """container for argparse defaults
     :attr executable: path to python executable
@@ -34,6 +39,8 @@ class Default:
     version = "3.8.2"
     directory = str(Path.home().joinpath("Documents"))
     threads = 4
+    include = []
+    exclude = []
 
 
 class Args:
@@ -46,12 +53,14 @@ class Args:
     :attr directory: name of the directory argument
     :attr optimizations: name of the optimizations argument
     """
-    executable = "python_executable"
+    executable = "python-executable"
     version = "version"
     flags = "flags"
     threads = "--threads"
     directory = "--directory"
-    optimizations = "--without_optimizations"
+    optimizations = "--without-optimizations"
+    include = "--include"
+    exclude = "--exclude"
 
 
 def get_arg(args: argparse.Namespace, arg: str) -> Optional[Any]:
@@ -61,14 +70,37 @@ def get_arg(args: argparse.Namespace, arg: str) -> Optional[Any]:
     :param arg: the argument name to get
     :return: argument value
     """
-    attr = getattr(args, arg.strip("--"))
+    if arg.startswith("--"):
+        attr = getattr(args, arg.strip("--").replace("-", "_"))
+    else:
+        attr = getattr(args, arg)
+
     return attr if attr != "None" else None
+
+
+def define_remainder_args(remainder: List[str]) -> Tuple[List[str], List[str]]:
+    includes, excludes = [], []
+    for arg in remainder:
+        index = sys.argv.index(arg)
+        while index > 0:
+            if sys.argv[index] == Args.exclude:
+                excludes.append(arg)
+                break
+            if sys.argv[index] == Args.include:
+                includes.append(arg)
+                break
+            index -= 1
+        else:
+            raise ArgParseError(f"\n\nUnknown way to handle {arg}.\n"
+                                f"If you meant to include or exclude {arg}\n"
+                                f"make sure to have --include or --exclude in front of {arg}")
+    return includes, excludes
 
 
 def download(version: str, directory: PosixPath) -> PosixPath:
     """downloads the python source
 
-    downlaods the source by building a url using given version
+    downloads the source by building a url using given version
     downloads it to given directory using wget and unpacks it with tar
 
     :param version: version to download.
@@ -100,11 +132,11 @@ def download(version: str, directory: PosixPath) -> PosixPath:
     return directory.joinpath(filename).with_suffix("")
 
 
-def configure_until_it_works(options: List[str]) -> bool:
-    """atemps to configure untill it works
+def configure_until_it_works(options: Set[str]) -> bool:
+    """attempts to configure until it works
 
     if it errors the option that caused the error will be removed and
-    another atempt to configure will run.
+    another attempts to configure will run.
 
     :param options: options foc ./configure
     :return: True if if configured else False
@@ -123,24 +155,25 @@ def configure_until_it_works(options: List[str]) -> bool:
     return False
 
 
-def configure(executable: str, options: List[str], optimizations: bool) -> None:
+def configure(executable: str, optimizations: bool, include: List[str], exclude: List[str]) -> None:
     """gathers options and runs ./configure
 
-    OBS! all options that fail durring the configure will silently be removed
+    OBS! all options that fail during the configure will silently be removed
 
     gathers configure options from:
         the python executable.
-        the aditional flags provided in flags.
+        the additional flags provided in flags.
         optimization flags.
 
-    :param executable: python nexecutable to search for previous compiler arguments
-    :param options: aditional flags that was not included in the executable
-    :param optimizations: compile with or without optimizations
+    :param executable: python executable to search for previous compiler arguments.
+    :param optimizations: compile with or without optimizations.
+    :param include: additional options that was not included in the executable.
+    :param exclude: options to exclude
     :return: None
     """
     lto = "--with-lto"
     pgo = "--enable-optimizations"
-
+    options = set()
     if executable:
         result = subprocess.run([
             executable, "-c", 'import sysconfig; print(sysconfig.get_config_vars("CONFIG_ARGS"))'
@@ -148,18 +181,25 @@ def configure(executable: str, options: List[str], optimizations: bool) -> None:
         if result.returncode:
             raise ConfigurationError(f"Something went wrong when trying to get pythons sysconfig.\n"
                                      f"Is {executable} on PATH?")
-        options.extend(result.stdout.decode().strip().lstrip("[\"").rstrip("\"]").replace("'", "").split())
+        options.update(result.stdout.decode().strip().lstrip("[\"").rstrip("\"]").replace("'", "").split())
 
     if optimizations:
         if lto not in options:
-            options.append(lto)
+            options.add(lto)
         if pgo not in options:
-            options.insert(0, pgo)
+            options.add(pgo)
     else:
         if lto in options:
             options.remove(lto)
         if pgo in options:
             options.remove(pgo)
+
+    for option in include:
+        options.add(option)
+
+    for option in exclude:
+        if option in options:
+            options.remove(option)
 
     configure_until_it_works(options)
 
@@ -195,17 +235,19 @@ def make_altinstall(config_dir: PosixPath) -> None:
         print("\nCompilation and installation was successful!")
 
 
-def main(args: argparse.Namespace, options):
+def main(args: argparse.Namespace, remainder):
+    # breakpoint()
     executable = get_arg(args, Args.executable)
     version = get_arg(args, Args.version)
     threads = get_arg(args, Args.threads)
     directory = Path(get_arg(args, Args.directory))
     optimizations = not get_arg(args, Args.optimizations)
+    include, exclude = define_remainder_args(remainder)
 
     config_dir = download(version, directory)
     # noinspection PyTypeChecker
     os.chdir(config_dir)
-    configure(executable, options, optimizations)
+    configure(executable, optimizations, include, exclude)
     make(threads)
     make_altinstall(config_dir)
 
@@ -228,4 +270,10 @@ if __name__ == '__main__':
     parser.add_argument(
         Args.optimizations, action="store_true",
         help="With or without optimizations, default with.")
+    parser.add_argument(
+        Args.include, default=Default.include, nargs="*",
+        help="Options to include to the configure script.")
+    parser.add_argument(
+        Args.exclude, default=Default.exclude, nargs="*",
+        help="Options to exclude from the configure script")
     main(*parser.parse_known_args())
