@@ -62,7 +62,7 @@ class Args:
     optimizations = "--without-optimizations"
     include = "--include"
     exclude = "--exclude"
-    pip = "--without-ensurepip"
+    pip = "--without-pip"
 
 
 def get_arg(args: argparse.Namespace, arg: str) -> Optional[Any]:

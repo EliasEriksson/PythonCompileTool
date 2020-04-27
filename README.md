@@ -9,8 +9,8 @@ when `pct` finishes.
 
 It then reads reads what compiler options was used for the given python executable
 and passes all those arguments + `--enable-optimizations` and `--with-lto` 
-(unless `--without-optimizations` is given) 
-- `--without-ensurepiip` + extra arguments you pass to `pct --include`\
+(unless `--without-optimizations` is given) -
+`--without-ensurepiip` (unless `--without-pip` is given) + extra arguments you pass to `pct --include`\
 If its not desired to copy options from another python install pass `None`.
 
 Then `./configure` runs with all found options `make` with the given `--threads` and `makealtinstall` 
@@ -33,12 +33,12 @@ If you are on a debian/ubuntu based distribution you can probably just run `apt 
 
 
 ## Usage:
-`./pct <version number> <python executable> <options>`\
+`./pct <version number> <python executable> <options> --exclude <compiler options> --include <compiler options>`\
 with options its possible to modify:
 * Where the python source is downloaded to / directory  for compilation ends up. (`--directory`)
 * Amount of jobs that are spawned concurrently for make (`--threads`)
 * If optimizations should be included (included by default). (`--without-optimizations`)
-* If pip should be installed (`--without-ensurepip`)
+* If pip should be installed (`--without-pip`)
 * Add extra options not found in the executable. (`--include`)
 * Remove options found in the executable. (`--exclude`)
 
