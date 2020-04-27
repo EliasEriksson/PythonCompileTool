@@ -3,6 +3,8 @@ from typing import *
 import subprocess
 import argparse
 from pathlib import Path, PosixPath
+from functools import partial
+import tempfile
 import sys
 import re
 import os
@@ -35,12 +37,11 @@ class Default:
     :attr directory: directory to download and extract the source in
     :attr threads: value for -j argument for make
     """
-    executable = "None"
-    version = "3.8.2"
-    directory = str(Path.home().joinpath("Documents"))
+    executable = "python3"
     threads = 4
     include = []
     exclude = []
+    pip = True
 
 
 class Args:
@@ -61,6 +62,7 @@ class Args:
     optimizations = "--without-optimizations"
     include = "--include"
     exclude = "--exclude"
+    pip = "--without-ensurepip"
 
 
 def get_arg(args: argparse.Namespace, arg: str) -> Optional[Any]:
@@ -79,6 +81,16 @@ def get_arg(args: argparse.Namespace, arg: str) -> Optional[Any]:
 
 
 def define_remainder_args(remainder: List[str]) -> Tuple[List[str], List[str]]:
+    """determine if unrecognized arguments should count as included or excluded
+
+    if an unrecognized argument is found look behind the argument until --exclude or --include is found
+    counts as an excluded argument if exclude is found first and vise versa
+
+    if neither --exclude nor --include is found an error is raised
+
+    :param remainder: the parsed remaining arguments
+    :return: tuple of list of includes and excludes respectively
+    """
     includes, excludes = [], []
     for arg in remainder:
         index = sys.argv.index(arg)
@@ -155,7 +167,7 @@ def configure_until_it_works(options: Set[str]) -> bool:
     return False
 
 
-def configure(executable: str, optimizations: bool, include: List[str], exclude: List[str]) -> None:
+def configure(executable: str, optimizations: bool, pip: bool, include: List[str], exclude: List[str]) -> None:
     """gathers options and runs ./configure
 
     OBS! all options that fail during the configure will silently be removed
@@ -167,13 +179,16 @@ def configure(executable: str, optimizations: bool, include: List[str], exclude:
 
     :param executable: python executable to search for previous compiler arguments.
     :param optimizations: compile with or without optimizations.
+    :param pip: compile with pip.
     :param include: additional options that was not included in the executable.
     :param exclude: options to exclude
     :return: None
     """
     lto = "--with-lto"
     pgo = "--enable-optimizations"
+    without_ensurepip = "--without-ensurepip"
     options = set()
+
     if executable:
         result = subprocess.run([
             executable, "-c", 'import sysconfig; print(sysconfig.get_config_vars("CONFIG_ARGS"))'
@@ -193,6 +208,12 @@ def configure(executable: str, optimizations: bool, include: List[str], exclude:
             options.remove(lto)
         if pgo in options:
             options.remove(pgo)
+
+    if pip:
+        if without_ensurepip in options:
+            options.remove(without_ensurepip)
+    else:
+        options.add(without_ensurepip)
 
     for option in include:
         options.add(option)
@@ -236,37 +257,43 @@ def make_altinstall(config_dir: PosixPath) -> None:
 
 
 def main(args: argparse.Namespace, remainder):
-    # breakpoint()
     executable = get_arg(args, Args.executable)
     version = get_arg(args, Args.version)
     threads = get_arg(args, Args.threads)
-    directory = Path(get_arg(args, Args.directory))
+    directory = get_arg(args, Args.directory)
     optimizations = not get_arg(args, Args.optimizations)
+    pip = get_arg(args, Args.pip)
     include, exclude = define_remainder_args(remainder)
 
-    config_dir = download(version, directory)
-    # noinspection PyTypeChecker
-    os.chdir(config_dir)
-    configure(executable, optimizations, include, exclude)
-    make(threads)
-    make_altinstall(config_dir)
+    if not directory:
+        create_directory = tempfile.TemporaryDirectory
+    else:
+        create_directory = partial(Path, directory)
+
+    with create_directory() as directory:
+        directory = Path(directory)
+        config_dir = download(version, directory)
+        os.chdir(str(config_dir))
+        configure(executable, optimizations, pip, include, exclude)
+        make(threads)
+        make_altinstall(config_dir)
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
     parser.add_argument(
-        Args.version, default=Default.version,
-        help="The version of python to compile OBS 3.8 is not enough,\nfull version number required (ex: 3.8.2).")
+        Args.version,
+        help="The version of python to compile OBS 3.8 is not enough, full version number required (ex: 3.8.2).")
     parser.add_argument(
         Args.executable, default=Default.executable,
-        help="Python executable to copy compile options from.\nIf this is not desired pass None.")
+        help="Python executable to copy compile options from. If this is not desired pass None.")
     parser.add_argument(
-        Args.directory, default=Default.directory,
+        Args.directory,
         help="The directory to download the source to and compile in.")
     parser.add_argument(
         Args.threads, type=int, default=Default.threads,
-        help="The amount of jobs that make spawns.\n(`make -jTHREADS`)")
+        help="The amount of jobs that make spawns. (`make -jTHREADS`)")
     parser.add_argument(
         Args.optimizations, action="store_true",
         help="With or without optimizations, default with.")
@@ -276,4 +303,8 @@ if __name__ == '__main__':
     parser.add_argument(
         Args.exclude, default=Default.exclude, nargs="*",
         help="Options to exclude from the configure script")
+    parser.add_argument(
+        Args.pip, action="store_false",
+        help="The system interpreter excludes pip py default, pass this option if you do not want pip.")
+
     main(*parser.parse_known_args())
