@@ -21,7 +21,9 @@ The system python interpreter does not come compiled with optimizations enabled 
 
 ## Before compiling
 Make sure you have the required dependencies to compile python.\
-These can be installed with apt using `apt build-dep python3.x`
+These can be installed by following the instructions given by the official 
+[python docs](https://devguide.python.org/setup/#linux).\
+If you are on a debian/ubuntu based distribution you can probably just run `apt build-dep python3.x`
 
 
 ## Usage:
