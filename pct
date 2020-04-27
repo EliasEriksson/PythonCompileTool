@@ -256,7 +256,16 @@ def make_altinstall(config_dir: PosixPath) -> None:
         print("\nCompilation and installation was successful!")
 
 
-def main(args: argparse.Namespace, remainder):
+def main(args: argparse.Namespace, remainder) -> None:
+    """Compiles python
+
+    examines the argparse namespace and sets usable values to variables using get_arg()
+    then opens the directory and starts download, configure, compiling and installing
+
+    :param args: pct specific argparse namespace
+    :param remainder: remaining arguments that will be processed further
+    :return:
+    """
     executable = get_arg(args, Args.executable)
     version = get_arg(args, Args.version)
     threads = get_arg(args, Args.threads)
