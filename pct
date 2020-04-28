@@ -42,6 +42,7 @@ class Default:
     include = []
     exclude = []
     pip = True
+    action = ("install", "uninstall")
 
 
 class Args:
@@ -54,6 +55,7 @@ class Args:
     :attr directory: name of the directory argument
     :attr optimizations: name of the optimizations argument
     """
+    action = "action"
     executable = "python-executable"
     version = "version"
     flags = "flags"
@@ -256,46 +258,74 @@ def make_altinstall(config_dir: PosixPath) -> None:
         print("\nCompilation and installation was successful!")
 
 
-def main(args: argparse.Namespace, remainder) -> None:
-    """Compiles python
+class Actions:
+    @staticmethod
+    def install(args: argparse.Namespace, remainder: List[str]) -> None:
+        """Compiles python
 
-    examines the argparse namespace and sets usable values to variables using get_arg()
-    then opens the directory and starts download, configure, compiling and installing
+        examines the argparse namespace and sets usable values to variables using get_arg()
+        then opens the directory and starts download, configure, compiling and installing
+
+        :param args: pct specific argparse namespace
+        :param remainder: remaining arguments that will be processed further
+        :return: None
+        """
+        executable = get_arg(args, Args.executable)
+        version = get_arg(args, Args.version)
+        threads = get_arg(args, Args.threads)
+        directory = get_arg(args, Args.directory)
+        optimizations = not get_arg(args, Args.optimizations)
+        pip = get_arg(args, Args.pip)
+        include, exclude = define_remainder_args(remainder)
+
+        if not directory:
+            create_directory = tempfile.TemporaryDirectory
+        else:
+            create_directory = partial(Path, directory)
+
+        with create_directory() as directory:
+            directory = Path(directory)
+            config_dir = download(version, directory)
+            os.chdir(str(config_dir))
+            configure(executable, optimizations, pip, include, exclude)
+            make(threads)
+            make_altinstall(config_dir)
+
+    @staticmethod
+    def uninstall(args: argparse.Namespace, *_) -> None:
+        full_version: str = get_arg(args, Args.version)
+        version = ".".join(full_version.split(".")[:-1])
+
+    def __iter__(self) -> Iterable[str]:
+        return iter([func for func in dir(self) if not func.startswith("_")])
+
+    def __contains__(self, action: str) -> bool:
+        return action in [func for func in dir(self) if not func.startswith("_")]
+
+
+def main(args: argparse.Namespace, remainder: List[str]) -> None:
+    """Calls either the install or uninstall function
+
+    searches the global namespace for a function named the selected option in Default.action
 
     :param args: pct specific argparse namespace
     :param remainder: remaining arguments that will be processed further
-    :return:
+    :return: None
     """
-    executable = get_arg(args, Args.executable)
-    version = get_arg(args, Args.version)
-    threads = get_arg(args, Args.threads)
-    directory = get_arg(args, Args.directory)
-    optimizations = not get_arg(args, Args.optimizations)
-    pip = get_arg(args, Args.pip)
-    include, exclude = define_remainder_args(remainder)
-
-    if not directory:
-        create_directory = tempfile.TemporaryDirectory
-    else:
-        create_directory = partial(Path, directory)
-
-    with create_directory() as directory:
-        directory = Path(directory)
-        config_dir = download(version, directory)
-        os.chdir(str(config_dir))
-        configure(executable, optimizations, pip, include, exclude)
-        make(threads)
-        make_altinstall(config_dir)
+    getattr(Actions, get_arg(args, Args.action))(args, remainder)
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
     parser.add_argument(
+        Args.action, choices=Actions(),
+        help=f"options must be one of: {', '.join(Actions())}")
+    parser.add_argument(
         Args.version,
         help="The version of python to compile OBS 3.8 is not enough, full version number required (ex: 3.8.2).")
     parser.add_argument(
-        Args.executable, default=Default.executable,
+        Args.executable,
         help="Python executable to copy compile options from. If this is not desired pass None.")
     parser.add_argument(
         Args.directory,
