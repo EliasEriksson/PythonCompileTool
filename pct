@@ -295,7 +295,7 @@ if __name__ == '__main__':
         Args.version,
         help="The version of python to compile OBS 3.8 is not enough, full version number required (ex: 3.8.2).")
     parser.add_argument(
-        Args.executable, default=Default.executable,
+        Args.executable, default=Default.executable, nargs="?",
         help="Python executable to copy compile options from. If this is not desired pass None.")
     parser.add_argument(
         Args.directory,
